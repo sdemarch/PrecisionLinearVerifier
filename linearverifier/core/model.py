@@ -3,12 +3,14 @@ This module defines the behavior of a neural network model
 
 """
 
+from mpmath import mp
+
 from linearverifier.core import ops
 from linearverifier.core.layer import LinearLayer
 from linearverifier.parser import onnx
 from linearverifier.parser import vnnlib
 
-DATA_PATH = 'Data/MNIST'
+MNIST_PATH = 'Data/MNIST'
 
 
 class ModelOptions:
@@ -16,9 +18,8 @@ class ModelOptions:
 
 
 class LinearModel:
-    def __init__(self, onnx_path: str, w_path=f'{DATA_PATH}/mnist_weights.txt', b_path=f'{DATA_PATH}/mnist_bias.txt',
+    def __init__(self, w_path=f'{MNIST_PATH}/mnist_weights.txt', b_path=f'{MNIST_PATH}/mnist_bias.txt',
                  options: ModelOptions = None):
-        self.onnx_path = onnx_path
 
         self.w_path = w_path
         self.b_path = b_path
@@ -27,11 +28,11 @@ class LinearModel:
         self.layer = self.parse_layer()
 
     @staticmethod
-    def check_robust(lbs: list[float], ubs: list[float], label: int) -> bool:
+    def check_robust(lbs: mp.matrix, ubs: mp.matrix, label: int) -> bool:
         """Procedure to check whether the robustness specification holds using numeric bounds"""
 
         # Create the matrices of the disjunctions
-        out_props = ops.create_disjunction_matrix(len(lbs), label)
+        out_props = ops.create_disjunction_matrix(lbs.rows, label)
         bounds = {
             'lower': lbs,
             'upper': ubs
@@ -48,11 +49,11 @@ class LinearModel:
         return True
 
     @staticmethod
-    def check_sym_robust(in_lbs: list[float], in_ubs: list[float], sym_bounds: tuple, label: int) -> bool:
+    def check_sym_robust(in_lbs: mp.matrix, in_ubs: mp.matrix, sym_bounds: dict, label: int) -> bool:
         """Procedure to check whether the robustness specification holds using symbolic bounds"""
 
         # Propagate property as a layer
-        out_props = ops.create_disjunction_matrix(len(sym_bounds[0]), label)
+        out_props = ops.create_disjunction_matrix(sym_bounds['matrix'].rows, label)
 
         # For each disjunction in the output property, check none is satisfied by output_bounds.
         # If one disjunction is satisfied, then it represents a counter-example.
@@ -67,21 +68,16 @@ class LinearModel:
 
     def parse_layer(self) -> LinearLayer:
         """Procedure to read the first layer of a ONNX network"""
-        nn = onnx.nn_from_weights(self.w_path, self.b_path)  # nn_from_onnx(self.onnx_path)
+        nn = onnx.nn_from_weights(self.w_path, self.b_path)
         return nn[0]
 
-    def propagate(self, lbs: list[float], ubs: list[float]) -> tuple[list[float], list[float]]:
+    def propagate(self, lbs: mp.matrix, ubs: mp.matrix) -> tuple[mp.matrix, mp.matrix]:
         """Procedure to compute the numeric interval bounds of a linear layer"""
         weights_plus = ops.get_positive(self.layer.weight)
         weights_minus = ops.get_negative(self.layer.weight)
 
-        wpluslb = ops.matmul_right(weights_plus, lbs)
-        wplusub = ops.matmul_right(weights_plus, ubs)
-        wminlb = ops.matmul_right(weights_minus, lbs)
-        wminub = ops.matmul_right(weights_minus, ubs)
-
-        low = [wpluslb[i] + wminub[i] + self.layer.bias[i] for i in range(len(self.layer.bias))]
-        upp = [wplusub[i] + wminlb[i] + self.layer.bias[i] for i in range(len(self.layer.bias))]
+        low = weights_plus * lbs + weights_minus * ubs + self.layer.bias
+        upp = weights_plus * ubs + weights_minus * lbs + self.layer.bias
 
         return low, upp
 
@@ -97,4 +93,8 @@ class LinearModel:
         if numeric_check:
             return True
         else:
-            return LinearModel.check_sym_robust(in_lbs, in_ubs, (self.layer.weight, self.layer.bias), label)
+            bounds = {
+                'matrix': self.layer.weight,
+                'offset': self.layer.bias
+            }
+            return LinearModel.check_sym_robust(in_lbs, in_ubs, bounds, label)

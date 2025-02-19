@@ -2,23 +2,23 @@
 This module reads ONNX files representing neural networks
 """
 
-import numpy as np
 import onnx
+from mpmath import mp
 
 from linearverifier.core.layer import LinearLayer, Layer
 
 
-def read_weights_from_file(weights_file: str) -> list[float] | list[list[float]]:
+def read_weights_from_file(weights_file: str) -> mp.matrix:
     """Procedure to read a file containing weights"""
 
     with open(weights_file, 'r') as f:
         lines = f.readlines()
         if ',' in lines[0]:
-            result = [[float(v) for v in line.split(',')] for line in lines]
+            result = [[mp.mpf(v) for v in line.split(',')] for line in lines]
         else:
-            result = [float(line) for line in lines]
+            result = [mp.mpf(line) for line in lines]
 
-    return result
+    return mp.matrix(result)
 
 
 def nn_from_weights(w_file: str, b_file: str) -> list[Layer]:
@@ -57,12 +57,14 @@ def nn_from_onnx(onnx_path: str) -> list[Layer]:
                     weight = parameters[node.input[1]].T
 
             neurons = weight.shape[0]
+            weight = mp.matrix(weight)
 
-            bias = np.zeros((neurons, 1))
-            if len(node.input) > 2:
-                bias = parameters[node.input[2]]
+            if len(node.input) <= 2:
+                bias = mp.zeros(neurons, 1)
+            else:
+                bias = mp.matrix(parameters[node.input[2]])
 
-            net.append(LinearLayer(weight.tolist(), bias.tolist()))
+            net.append(LinearLayer(weight, bias))
 
     assert (len(net)) == 1
     return net
