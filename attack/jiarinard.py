@@ -18,7 +18,7 @@ parser.add_argument('-e', '--eps_r', type=float, default=1e-7, help='Epsilon val
                                                                     'boundary')
 parser.add_argument('-l', '--l_inf', type=float, default=0.01, help='l-inf perturbation to check '
                                                                     'robustness')
-parser.add_argument('-p', '--precision', type=int, default=4, help='mp.dps precision of NeVer')
+parser.add_argument('-p', '--precision', type=int, default=9, help='mp.dps precision of NeVer')
 parser.add_argument('-n', '--n_samples', type=int, default=1, help='Number of samples to test')
 
 args = parser.parse_args()
@@ -27,14 +27,7 @@ EPS_r = args.eps_r  # 1e-7 for 32-bit precision
 EPS_linf = args.l_inf  # 0.03 / 0.01
 
 
-def softmax(x):
-    """Compute softmax values for each sets of scores in x"""
-
-    e_x = np.exp(x - np.max(x))
-    return e_x / e_x.sum()
-
-
-def get_seed(nn: str) -> tuple[int, torch.Tensor, int]:
+def get_seed(model: LinearModel) -> tuple[int, torch.Tensor, int]:
     """Procedure to load a robust sample from the training set"""
 
     # Load dataset
@@ -52,7 +45,7 @@ def get_seed(nn: str) -> tuple[int, torch.Tensor, int]:
         idx = random.randint(0, len(training_set) - 1)
         t, label = training_set[idx]
         t_mp = mp.matrix(t)
-        robust = check_robust(nn, t_mp, 1.0, label)
+        robust = check_robust(model, t_mp, 1.0, label)
         print(f'Sample {idx} - label {label}, robust = {robust}')
 
     return idx, t, label
@@ -87,13 +80,13 @@ def generate_vnnlib(x: mp.matrix, scale: float, label: int, name: str = 'jia_pro
     return name
 
 
-def check_robust(nn: str, x: mp.matrix, scale: float, label: int) -> bool:
+def check_robust(model: LinearModel, x: mp.matrix, scale: float, label: int) -> bool:
     """Procedure to call the solver to check robustness"""
 
-    return LinearModel(nn).verify(generate_vnnlib(x, scale, label, name=f'jia_prop_{label}.vnnlib'))
+    return model.verify(generate_vnnlib(x, scale, label, name=f'jia_prop_label_{label}.vnnlib'))
 
 
-def find_x0(x: torch.Tensor, label: int, nn: str) -> tuple[float, torch.Tensor]:
+def find_x0(x: torch.Tensor, label: int, model: LinearModel) -> tuple[float, torch.Tensor]:
     """Procedure to find x_0 = alpha*x using binary search to find alpha"""
 
     # Initial search bounds (1 * x_seed is by definition safe
@@ -111,7 +104,7 @@ def find_x0(x: torch.Tensor, label: int, nn: str) -> tuple[float, torch.Tensor]:
         mid = (a + a1) / 2
 
         # Binary search to converge
-        robust = check_robust(nn, x_t, mid, label)
+        robust = check_robust(model, x_t, mid, label)
         if robust:
             a = mid
         else:
@@ -120,21 +113,21 @@ def find_x0(x: torch.Tensor, label: int, nn: str) -> tuple[float, torch.Tensor]:
         # Log
         print('-----------------------')
         print(f'loop: {loop}, alpha = {a}, alpha1 = {a1}, (alpha - alpha1) = {a - a1}, robust: {robust}')
-        print(f'Prediction with alpha: {predict(nn, a * x)}')
-        print(f'Prediction with alpha - truncated: {predict_trunc(nn, a * x_t)}')
+        print(f'Prediction with alpha: {predict(args.nn, a * x)}')
+        print(f'Prediction with alpha - truncated: {predict_trunc(model, a * x_t)}')
         print('-')
-        print(f'Prediction with alpha1: {predict(nn, a1 * x)}')
-        print(f'Prediction with alpha1 - truncated: {predict_trunc(nn, a1 * x_t)}')
+        print(f'Prediction with alpha1: {predict(args.nn, a1 * x)}')
+        print(f'Prediction with alpha1 - truncated: {predict_trunc(model, a1 * x_t)}')
         loop += 1
 
     return a, a * x  # x_0 = x * alpha
 
 
-def find_adv(x: torch.Tensor, label: int, nn: str) -> torch.Tensor:
+def find_adv(x: torch.Tensor, label: int, model: LinearModel) -> torch.Tensor:
     # Initialize x_adv as x_0
     adv = copy.deepcopy(x)
 
-    W = LinearModel(nn).layer.weight
+    W = model.layer.weight
 
     # Scale the pixels to reach the frontier
     for i in range(len(adv)):
@@ -172,12 +165,12 @@ def predict(onnx: str, x_in: torch.Tensor) -> int:
     from pynever.utilities import execute_network
 
     nn = ox.ONNXConverter().to_neural_network(cv.load_network_path(onnx))
-    return np.argmax(softmax(execute_network(nn, x_in)))
+    return np.argmax(execute_network(nn, x_in))
 
 
-def predict_trunc(nn: str, x_in: mp.matrix) -> int:
+def predict_trunc(model: LinearModel, x_in: mp.matrix) -> int:
     # Get output
-    fc = LinearModel(nn).layer
+    fc = model.layer
     out_layer = fc.weight * x_in + fc.bias
     return np.argmax(out_layer)
 
@@ -186,7 +179,7 @@ def save_tensor(x: torch.Tensor, idx: int, label: int, root_dir: str = 'Experime
     """Save the Tensor x to txt file"""
     with open(f'{root_dir}/adv_{idx}_label_{label}.txt', 'w') as f:
         for v in x:
-            f.write(str(float(v)) + '\n')
+            f.write(mp.mpf(v.item()) + '\n')
 
 
 def save_property(x: torch.Tensor, idx: int, label: int, root_dir: str = 'Experiments') -> None:
@@ -216,6 +209,9 @@ def save_property(x: torch.Tensor, idx: int, label: int, root_dir: str = 'Experi
 
 
 def main():
+    # Loads MNIST weights and bias from file using mpmath
+    model = LinearModel('../Data/MNIST/mnist_weights.txt', '../Data/MNIST/mnist_bias.txt')
+
     with open('results.csv', 'w') as out:
 
         out.write('Sample,Precision epsilon,l_inf noise,Original label,Coefficient alpha,'
@@ -223,28 +219,30 @@ def main():
         for _ in range(args.n_samples):
 
             # Step 0 - Get x_seed which is robust for the loaded network
-            sample, x_seed, pred = get_seed(args.nn)
+            sample, x_seed, pred = get_seed(model)
+            pred_seed = predict(args.nn, x_seed)
 
             # Step 1 - Find x_0 based on x_seed
-            alpha, x_0 = find_x0(x_seed, pred, args.nn)
+            alpha, x_0 = find_x0(x_seed, pred, model)
             pred_x0 = predict(args.nn, x_0)
 
             print('***********************************')
             print(f'Original label of x_seed: {pred}')
-            print(f'Prediction on x_seed: {predict(args.nn, x_seed)}')
+            print(f'Prediction on x_seed: {pred_seed}')
             print(f'alpha = {alpha}')
             print(f'Prediction on x_0 = alpha * x_seed: {pred_x0}')
 
-            if predict(args.nn, x_seed) != pred:
+            if pred_seed != pred:
                 with open(f'exception_sample_{sample}.txt') as e:
                     e.write(f'P(xseed) = {pred}\nP(x0) = {pred_x0}\n')
 
             # Step 2 - Find x_adv where x_0 was deemed safe (both precise and truncated)
-            x_adv = find_adv(x_0, pred, args.nn)
+            x_adv = find_adv(x_0, pred, model)
             pred_adv = predict(args.nn, x_adv)
 
-            x_adv_t = mp.matrix(x_adv)
-            pred_adv_t = predict_trunc(args.nn, x_adv_t)
+            with mp.workdps(args.precision * 2):
+                x_adv_t = mp.matrix(x_adv)
+                pred_adv_t = predict_trunc(model, x_adv_t)
 
             # Step 3 - If the low-precision implementation has an adversary save it
             if pred_adv_t != pred_adv:
