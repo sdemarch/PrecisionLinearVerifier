@@ -52,7 +52,8 @@ def get_seed(model: LinearModel) -> tuple[int, torch.Tensor, int]:
     return idx, t, label
 
 
-def generate_vnnlib(x: mp.matrix, scale: float, label: int, name: str = 'jia_prop.vnnlib') -> str:
+def generate_vnnlib(x: mp.matrix, scale: float, label: int, name: str = 'jia_prop.vnnlib',
+                    eps: float = EPS_linf) -> str:
     """Generate the VNNLIB property for solvers"""
 
     with open(name, 'w') as p:
@@ -67,8 +68,8 @@ def generate_vnnlib(x: mp.matrix, scale: float, label: int, name: str = 'jia_pro
         # Constraints on X
         for i in range(x.rows):
             # Property is within the dynamic range [0, 1]
-            p.write(f'(assert (>= X_{i} {max(scale * x[i] - EPS_linf, mp.mpf(0))}))\n')
-            p.write(f'(assert (<= X_{i} {min(scale * x[i] + EPS_linf, mp.mpf(1))}))\n')
+            p.write(f'(assert (>= X_{i} {max(scale * x[i] - eps, mp.mpf(0))}))\n')
+            p.write(f'(assert (<= X_{i} {min(scale * x[i] + eps, mp.mpf(1))}))\n')
         p.write('\n')
 
         # Constraints on Y
@@ -81,10 +82,10 @@ def generate_vnnlib(x: mp.matrix, scale: float, label: int, name: str = 'jia_pro
     return name
 
 
-def check_robust(model: LinearModel, x: mp.matrix, scale: float | mp.mpf, label: int) -> bool:
+def check_robust(model: LinearModel, x: mp.matrix, scale: float | mp.mpf, label: int, eps: float = EPS_linf) -> bool:
     """Procedure to call the solver to check robustness"""
 
-    return model.verify(generate_vnnlib(x, scale, label, name=f'jia_prop_label_{label}.vnnlib'))
+    return model.verify(generate_vnnlib(x, scale, label, name=f'jia_prop_label_{label}.vnnlib', eps=eps))
 
 
 def find_x0(x: torch.Tensor, label: int, model: LinearModel) -> tuple[float, torch.Tensor]:
@@ -124,7 +125,7 @@ def find_x0(x: torch.Tensor, label: int, model: LinearModel) -> tuple[float, tor
     return a, a * x  # x_0 = x * alpha
 
 
-def find_adv(x: torch.Tensor, label: int, model: LinearModel) -> torch.Tensor:
+def find_adv(x: torch.Tensor, label: int, model: LinearModel, eps: float = EPS_linf) -> torch.Tensor:
     # Initialize x_adv as x_0
     adv = copy.deepcopy(x)
 
@@ -133,12 +134,32 @@ def find_adv(x: torch.Tensor, label: int, model: LinearModel) -> torch.Tensor:
     # Scale the pixels to reach the frontier
     for i in range(len(adv)):
         if W[label, i] > 0:
-            adv[i] -= EPS_linf
+            adv[i] -= eps
             if adv[i] < 0:
                 adv[i] = 0.0
 
         else:
-            adv[i] += EPS_linf
+            adv[i] += eps
+            if adv[i] > 1:
+                adv[i] = 1.0
+
+    return adv
+
+
+def compute_adv_t(x: mp.matrix, label: int, model: LinearModel, eps: float = EPS_linf) -> mp.matrix:
+    """Compute the low precision adversary"""
+
+    adv = copy.deepcopy(x)
+    W = model.layer.weight
+
+    for i in range(len(adv)):
+        if W[label, i] > 0:
+            adv[i] -= eps
+            if adv[i] < 0:
+                adv[i] = 0.0
+
+        else:
+            adv[i] += eps
             if adv[i] > 1:
                 adv[i] = 1.0
 
@@ -246,10 +267,26 @@ def main():
             pred_adv = predict(args.nn, x_adv)
             adv_check = check_in_radius(x_adv, x_0)
 
+            # Now if I truncate x_adv directly I may move it from the vertex.
+            # To avoid so, I truncate x0 and find the right epsilon value to place it
+            # on the vertex again
             with mp.workdps(args.pred_precision):
-                x_adv_t = mp.matrix(x_adv)
+                x0_t = mp.matrix(x_0)
+                new_eps = EPS_linf
+                robust = True
+
+                while robust:
+                    with mp.workdps(args.ver_precision):
+                        robust = check_robust(model, x0_t, 1.0, pred, new_eps)
+
+                    if robust:
+                        new_eps += 0.00001
+                    else:
+                        new_eps -= 0.00001
+
+                x_adv_t = compute_adv_t(x0_t, pred, model, new_eps)
                 pred_adv_t = predict_trunc(model, x_adv_t)
-                adv_t_check = check_in_radius(x_adv_t, mp.matrix(x_0))
+                adv_t_check = check_in_radius(x_adv_t, x0_t)
 
             # Step 3 - If the low-precision implementation has an adversary save it
             if pred_adv_t != pred_adv:
