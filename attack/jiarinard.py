@@ -18,13 +18,14 @@ parser.add_argument('-e', '--eps_r', type=float, default=1e-7, help='Epsilon val
                                                                     'boundary')
 parser.add_argument('-l', '--l_inf', type=float, default=0.01, help='l-inf perturbation to check '
                                                                     'robustness')
-parser.add_argument('-p', '--precision', type=int, default=9, help='mp.dps precision of NeVer')
+parser.add_argument('-vp', '--ver_precision', type=int, default=9, help='mp.dps verification precision')
+parser.add_argument('-pp', '--pred_precision', type=int, default=4, help='mp.dps implementation precision')
 parser.add_argument('-n', '--n_samples', type=int, default=1, help='Number of samples to test')
 
 args = parser.parse_args()
 
 EPS_r = args.eps_r  # 1e-7 for 32-bit precision
-EPS_linf = args.l_inf  # 0.03 / 0.01
+EPS_linf = 0.01
 
 
 def get_seed(model: LinearModel) -> tuple[int, torch.Tensor, int]:
@@ -80,7 +81,7 @@ def generate_vnnlib(x: mp.matrix, scale: float, label: int, name: str = 'jia_pro
     return name
 
 
-def check_robust(model: LinearModel, x: mp.matrix, scale: float, label: int) -> bool:
+def check_robust(model: LinearModel, x: mp.matrix, scale: float | mp.mpf, label: int) -> bool:
     """Procedure to call the solver to check robustness"""
 
     return model.verify(generate_vnnlib(x, scale, label, name=f'jia_prop_label_{label}.vnnlib'))
@@ -104,7 +105,7 @@ def find_x0(x: torch.Tensor, label: int, model: LinearModel) -> tuple[float, tor
         mid = (a + a1) / 2
 
         # Binary search to converge
-        robust = check_robust(model, x_t, mid, label)
+        robust = check_robust(model, x_t, mp.mpf(mid), label)
         if robust:
             a = mid
         else:
@@ -113,11 +114,11 @@ def find_x0(x: torch.Tensor, label: int, model: LinearModel) -> tuple[float, tor
         # Log
         print('-----------------------')
         print(f'loop: {loop}, alpha = {a}, alpha1 = {a1}, (alpha - alpha1) = {a - a1}, robust: {robust}')
-        print(f'Prediction with alpha: {predict(args.nn, a * x)}')
-        print(f'Prediction with alpha - truncated: {predict_trunc(model, a * x_t)}')
-        print('-')
-        print(f'Prediction with alpha1: {predict(args.nn, a1 * x)}')
-        print(f'Prediction with alpha1 - truncated: {predict_trunc(model, a1 * x_t)}')
+        # print(f'Prediction with alpha: {predict(args.nn, a * x)}')
+        # print(f'Prediction with alpha - truncated: {predict_trunc(model, a * x_t)}')
+        # print('-')
+        # print(f'Prediction with alpha1: {predict(args.nn, a1 * x)}')
+        # print(f'Prediction with alpha1 - truncated: {predict_trunc(model, a1 * x_t)}')
         loop += 1
 
     return a, a * x  # x_0 = x * alpha
@@ -144,16 +145,16 @@ def find_adv(x: torch.Tensor, label: int, model: LinearModel) -> torch.Tensor:
     return adv
 
 
-def check_in_radius(x: torch.Tensor | mp.matrix, x0: torch.Tensor) -> bool:
+def check_in_radius(x: torch.Tensor | mp.matrix, x0: torch.Tensor | mp.matrix) -> bool:
     """Procedure to check whether the Tensor x belongs to the l_inf norm of x0"""
 
-    if isinstance(x, torch.Tensor):
+    if isinstance(x, torch.Tensor):  # -> x0 = torch.Tensor
         for i in range(len(x)):
             if x[i] > x0[i] + EPS_linf or x[i] < x0[i] - EPS_linf:
                 return False
-    else:
+    else:  # -> x0 = mp.matrix
         for i in range(len(x)):
-            if mp.mpf(x[i]) > mp.mpf(x0[i].item()) + EPS_linf or mp.mpf(x[i]) < mp.mpf(x0[i].item()) - EPS_linf:
+            if x[i] > x0[i] + EPS_linf or x[i] < x0[i] - EPS_linf:
                 return False
 
     return True
@@ -234,15 +235,21 @@ def main():
 
             if pred_seed != pred:
                 with open(f'exception_sample_{sample}.txt') as e:
+                    e.write(f'P(xseed) = {pred_seed}\npred = {pred}\n')
+
+            if pred_x0 != pred:
+                with open(f'exception_sample_{sample}.txt', 'w') as e:
                     e.write(f'P(xseed) = {pred}\nP(x0) = {pred_x0}\n')
 
             # Step 2 - Find x_adv where x_0 was deemed safe (both precise and truncated)
             x_adv = find_adv(x_0, pred, model)
             pred_adv = predict(args.nn, x_adv)
+            adv_check = check_in_radius(x_adv, x_0)
 
-            with mp.workdps(args.precision * 2):
+            with mp.workdps(args.pred_precision):
                 x_adv_t = mp.matrix(x_adv)
                 pred_adv_t = predict_trunc(model, x_adv_t)
+                adv_t_check = check_in_radius(x_adv_t, mp.matrix(x_0))
 
             # Step 3 - If the low-precision implementation has an adversary save it
             if pred_adv_t != pred_adv:
@@ -251,14 +258,14 @@ def main():
 
             print(f'Prediction on x_adv: {pred_adv}')
             print(f'Prediction on x_adv - truncated: {pred_adv_t}')
-            print(f'x_adv belongs to Adv(x_0): {check_in_radius(x_adv, x_0)}')
-            print(f'x_adv_t belongs to Adv(x_0): {check_in_radius(x_adv_t, x_0)}')
-            success = check_in_radius(x_adv, x_0) and check_in_radius(x_adv_t, x_0) and pred_adv_t != pred_adv
+            print(f'x_adv belongs to Adv(x_0): {adv_check}')
+            print(f'x_adv_t belongs to Adv(x_0): {adv_t_check}')
+            success = adv_check and adv_t_check and pred_adv_t != pred_adv
 
             out.write('{},{},{},{},{},{},{},{}\n'.format(sample, EPS_r, EPS_linf, pred, alpha, pred_adv,
                                                          pred_adv_t, success))
 
 
 if __name__ == "__main__":
-    with mp.workdps(args.precision):
+    with mp.workdps(args.ver_precision):
         main()
