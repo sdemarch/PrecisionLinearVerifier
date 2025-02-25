@@ -2,7 +2,7 @@
 This module defines the behavior of a neural network linear layer
 
 """
-
+import numpy as np
 from mpmath import mp
 
 
@@ -20,6 +20,4 @@ class LinearLayer(Layer):
     def predict(self, x: mp.matrix) -> int:
         """Procedure to execute the matrix multiplication"""
 
-        forward = self.weight * x + self.bias
-
-        return forward.index(max(forward))
+        return np.argmax(self.weight * x + self.bias)
