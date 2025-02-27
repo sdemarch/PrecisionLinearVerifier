@@ -63,11 +63,12 @@ def check_unsafe(bounds: dict, matrix: mp.matrix) -> bool:
 def check_unsafe_sym(bounds: dict, matrix: mp.matrix, lbs: mp.matrix, ubs: mp.matrix) -> bool:
     """Procedure to check whether the output symbolic bounds are unsafe"""
 
-    out_m = matrix * bounds['matrix']
+    # Assumption: the lower and upper bounds are the same (1 dense layer)
+    out_m = get_positive(matrix) * bounds['matrix'] + get_negative(matrix) * bounds['matrix']
+    out_b = get_positive(matrix) * bounds['offset'] + get_negative(matrix) * bounds['offset']
+
     out_m_plus = get_positive(out_m)
     out_m_minus = get_negative(out_m)
-
-    out_b = matrix * bounds['offset']
 
     min_value = out_m_plus * lbs + out_m_minus * ubs + out_b
 
