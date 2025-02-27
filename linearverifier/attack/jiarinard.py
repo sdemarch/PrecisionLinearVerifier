@@ -32,7 +32,7 @@ def get_seed(model: LinearModel) -> tuple[int, torch.Tensor, int]:
     """Procedure to load a robust sample from the training set"""
 
     # Load dataset
-    training_set = dt.TorchMNIST('./classifier',
+    training_set = dt.TorchMNIST('classifier',
                                  train=True,
                                  transform=tr.Compose([tr.ToTensor(),
                                                        tr.Lambda(lambda x: torch.flatten(x))]),
@@ -204,7 +204,7 @@ def save_property(x: torch.Tensor, idx: int, label: int, root_dir: str = 'Experi
 
 def main():
     # Loads MNIST weights and bias from file using mpmath
-    model = LinearModel('../Data/MNIST/mnist_weights.txt', '../Data/MNIST/mnist_bias.txt')
+    model = LinearModel('../../Data/MNIST/mnist_weights.txt', '../Data/MNIST/mnist_bias.txt')
 
     with open('results.csv', 'w') as out:
 
