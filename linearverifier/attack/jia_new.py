@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import pynever.datasets as dt
 import torch
@@ -110,6 +111,11 @@ def round_vec(x: mp.matrix, digits: int) -> np.ndarray:
 
     return result
 
+def display(x: mp.matrix) -> None:
+    pixels = round_vec(x, 16).reshape((28, 28))
+    plt.imshow(pixels, cmap='gray')
+    plt.show()
+
 
 def jia_binary():
     digits = 3
@@ -179,8 +185,9 @@ def jia_new():
 
     # 8576 -> cambia p_oo e rimane p_qq
     # 10   -> rimane p_oo e cambia p_qq
-    label, x_o, robust = get_seed(mnist, 10)
+    label, x_o, robust = get_seed(mnist, 8576)
     alpha_safe = 0
+    display(x_o)
 
     # TODO: find good values for lb, ub alpha (using binary search?)
 
@@ -209,6 +216,7 @@ def jia_new():
         pred_qq_np = np.argmax(out_qq_np)
 
         if pred_oo != pred_qq_np:
+            display(x_a)
             print(f'Alpha safe    = {alpha_safe}')
             print(f'Alpha stop    = {alpha}')  # Se alpha == alpha_safe -> attacco riuscito
             print(f'p_oo          = {pred_oo}')
