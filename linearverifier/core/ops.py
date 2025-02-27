@@ -34,7 +34,8 @@ def create_disjunction_matrix(n_outs: int, label: int) -> list[mp.matrix]:
     for i in range(n_outs):
         if i != label:
             matrix.append(mp.matrix(1, n_outs))
-            matrix[c][label] = 1
+            if n_outs > 1:
+                matrix[c][label] = 1
             matrix[c][i] = -1
             c += 1
 

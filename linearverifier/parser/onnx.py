@@ -30,6 +30,9 @@ def nn_from_weights(w_file: str, b_file: str) -> list[Layer]:
     weights = read_weights_from_file(w_file)
     bias = read_weights_from_file(b_file)
 
+    if weights.cols == 1:
+        weights = weights.T
+
     net.append(LinearLayer(weights, bias))
     return net
 

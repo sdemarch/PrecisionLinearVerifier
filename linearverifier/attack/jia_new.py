@@ -35,11 +35,11 @@ def get_xt(index: int) -> mp.matrix:
         return mp.matrix(line.strip('\n').split(','))
 
 
-def get_yt(index: int) -> float:
+def get_yt(index: int) -> int:
     """Get true prediction for input idx"""
     with open('linearverifier/attack/binary/YT.csv', 'r') as yt_f:
         line = yt_f.readlines()[index]
-        return float(line)
+        return int(line)
 
 
 def get_yp(index: int) -> mp.mpf:
@@ -111,6 +111,7 @@ def round_vec(x: mp.matrix, digits: int) -> np.ndarray:
 
     return result
 
+
 def display(x: mp.matrix) -> None:
     pixels = round_vec(x, 16).reshape((28, 28))
     plt.imshow(pixels, cmap='gray')
@@ -119,12 +120,12 @@ def display(x: mp.matrix) -> None:
 
 def jia_binary():
     digits = 3
-    idx = 1
+    idx = 2
+    PATH = 'linearverifier/attack/binary'
 
-    # binary
-    with open('linearverifier/attack/binary/w_mnist.csv', 'r') as f:
-        weights = [float(l) for l in f]
-        w = mp.matrix(weights)
+    # Load binary classifier
+    mnist = LinearModel(f'{PATH}/w_mnist.csv', f'{PATH}/b_mnist.csv')
+    w = mnist.layer.weight
 
     ########################################
     ### PARTE 1 - STABILIRE LIMITI ALPHA ###
@@ -134,38 +135,63 @@ def jia_binary():
     x_o = get_xt(idx)
     yt = get_yt(idx)
     yp = get_yp(idx)
-    alpha = 2
 
+    lb = 0
+    ub = 1
+
+    # Get large upper bound
+    while True:
+        if yt > 0:
+            x_a = x_o - ub * w.T / norm(w)
+        else:
+            x_a = x_o + ub * w.T / norm(w)
+
+        yoo = (w * x_a)[0]
+        if yoo * yp > 0:
+            lb += 1
+            ub += 1
+        else:
+            break
+
+    # Get alpha limits
     print(f'Y vera      = {yt}')
     print(f'Y predetta  = {yp}')
-    print(f'Alpha       = {alpha}')
+    print(f'Alpha (lb)  = {lb}')
+    print(f'Alpha (ub)  = {ub}')
 
-    wn = mp.sqrt((w.T * w)[0])
-
-    if yt > 0:
-        x_a = x_o - alpha * w / wn
-    else:
-        x_a = x_o + alpha * w / wn
-
-    print(f'Y_oo    = {x_a.T * w}')
-    with mp.workdps(digits - 1):
-        print(f'Y_qq    = {x_a.T * w}')
+    # if yt > 0:
+    #     x_a = x_o - alpha * w / wn
+    # else:
+    #     x_a = x_o + alpha * w / wn
+    #
+    # print(f'Y_oo    = {x_a.T * w}')
+    # with mp.workdps(digits - 1):
+    #     print(f'Y_qq    = {x_a.T * w}')
+    #
+    # input()
 
     ##############################
     ### PARTE 2 - TROVARE BUCO ###
     ##############################
     print('******* PARTE 2 *******')
 
-    for alpha in np.linspace(1, 2, 1000):
+    alpha_safe = 0
+    for alpha in np.linspace(lb, ub, 1000):
         a = mp.mpf(alpha)
 
         if yt > 0:
-            x_a = x_o - a * w / wn
+            x_a = x_o - a * w.T / norm(w)
         else:
-            x_a = x_o + a * w / wn
+            x_a = x_o + a * w.T / norm(w)
 
-        yoo = (x_a.T * w)[0]
-        yqq_np = np.matmul(round_vec(x_a, digits), round_vec(w, digits))
+        # Compress x_a
+        x_a = limiter(x_a, 0, 1)
+
+        if check_robust(mnist, x_a, yt):
+            alpha_safe = a
+
+        yoo = (w * x_a)[0]
+        yqq_np = np.matmul(round_vec(w, digits), round_vec(x_a, digits))
 
         if yqq_np * yoo < 0:
             print(f'Alpha         = {alpha}')
