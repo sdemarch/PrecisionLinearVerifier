@@ -61,6 +61,18 @@ def check_robust(model: LinearModel, x: mp.matrix, label: int, eps: float = 0.01
     return model.verify(generate_vnnlib(x, label, name=f'jia_prop_label_{label}.vnnlib', eps=eps))
 
 
+def limiter(x: mp.matrix, low: float, high: float) -> mp.matrix:
+    """Limiter for compressing the values of a vector"""
+    for i in range(x.rows):
+        for j in range(x.cols):
+            if x[i, j] <= low:
+                x[i, j] = mp.mpf(low)
+            elif x[i, j] >= high:
+                x[i, j] = mp.mpf(high)
+
+    return x
+
+
 def norm(x: mp.matrix) -> mp.mpf:
     """Procedure to compute the norm of a vector"""
     return mp.sqrt((x * x.T)[0])
@@ -87,29 +99,30 @@ mnist = LinearModel('../Data/MNIST/mnist_weights.txt', '../Data/MNIST/mnist_bias
 w = mnist.layer.weight
 b = mnist.layer.bias
 
-# 8576
+# 8576 -> cambia p_oo e rimane p_qq
+# 10   -> rimane p_oo e cambia p_qq
 label, x_o, robust = get_seed(mnist, 8576)
 alpha_safe = 0
-counter = 0
+
+# TODO: find good values for lb, ub alpha (using binary search?)
 
 for a in np.linspace(1, 2, 1000):
     alpha = mp.mpf(a)
-    print(a)
 
     if label > 0:  # TODO CHANGE!
+        # Do I still have to compress here? Or just stop when I'm out of the dynamic range?
+        # Or (2) try and verify out of the range?
         x_a = x_o - alpha * w[label, :].T / norm(w[label, :])
     else:
         x_a = x_o + alpha * w[label, :].T / norm(w[label, :])
 
-    if not check_robust(mnist, x_a, label):
-        print(alpha_safe)
-    else:
+    # Try 1: compress x_a
+    x_a = limiter(x_a, 0, 1)
+
+    if check_robust(mnist, x_a, label):
         alpha_safe = alpha
 
     pred_oo = mnist.layer.predict(x_a)
-    counter += 1
-    if pred_oo != label:
-        check_robust(mnist, x_a, label)
 
     with mp.workdps(digits - 1):
         pred_qq = mnist.layer.predict(x_a)
@@ -118,8 +131,9 @@ for a in np.linspace(1, 2, 1000):
     pred_qq_np = np.argmax(out_qq_np)
 
     if pred_oo != pred_qq_np:
+        print(f'Alpha safe    = {alpha_safe}')
         print(f'p_oo          = {pred_oo}')
         print(f'p_qq (mpmath) = {pred_qq}')
         print(f'p_qq (numpy)  = {pred_qq_np}')
-        print(f'Y_qq (numpy)  = {out_qq_np}')
-        print('-----------------')
+        print(f'Y_qq (numpy)  = \n{out_qq_np}')
+        break
