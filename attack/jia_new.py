@@ -101,7 +101,7 @@ b = mnist.layer.bias
 
 # 8576 -> cambia p_oo e rimane p_qq
 # 10   -> rimane p_oo e cambia p_qq
-label, x_o, robust = get_seed(mnist, 8576)
+label, x_o, robust = get_seed(mnist, 10)
 alpha_safe = 0
 
 # TODO: find good values for lb, ub alpha (using binary search?)
@@ -132,6 +132,7 @@ for a in np.linspace(1, 2, 1000):
 
     if pred_oo != pred_qq_np:
         print(f'Alpha safe    = {alpha_safe}')
+        print(f'Alpha stop    = {alpha}')  # Se alpha == alpha_safe -> attacco riuscito
         print(f'p_oo          = {pred_oo}')
         print(f'p_qq (mpmath) = {pred_qq}')
         print(f'p_qq (numpy)  = {pred_qq_np}')
