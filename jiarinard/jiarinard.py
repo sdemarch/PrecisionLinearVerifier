@@ -204,7 +204,7 @@ def save_property(x: torch.Tensor, idx: int, label: int, root_dir: str = 'Experi
 
 def main():
     # Loads MNIST weights and bias from file using mpmath
-    model = LinearModel('../../Data/MNIST/mnist_weights.txt', '../Data/MNIST/mnist_bias.txt')
+    model = LinearModel('multiclass/mnist_weights.txt', 'multiclass/mnist_bias.txt')
 
     with open('results.csv', 'w') as out:
 

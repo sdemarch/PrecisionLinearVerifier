@@ -5,7 +5,7 @@ Usage: python verifier.py NETWORK.onnx PROPERTY.vnnlib
 @author Stefano Demarchi
 
 """
-
+import time
 from argparse import ArgumentParser
 
 from mpmath import mp
@@ -21,9 +21,11 @@ args = parser.parse_args()
 
 if __name__ == '__main__':
     with mp.workdps(args.precision):
-        w_path = 'Data/Test/test_weights.txt' if args.net == 'test' else 'Data/MNIST/mnist_weights.txt'
-        b_path = 'Data/Test/test_bias.txt' if args.net == 'test' else 'Data/MNIST/mnist_bias.txt'
-        model = LinearModel(w_path, b_path)
-        result = model.verify(args.prop)
+        if args.net == 'test':
+            model = LinearModel('Data/Test/test_weights.txt', 'Data/Test/test_bias.txt')
+        elif args.net == 'mnist':
+            model = LinearModel('Data/MNIST/mnist_weights.txt', 'Data/MNIST/mnist_bias.txt')
 
-    print(f'Property verified: {result}')
+    start = time.perf_counter()
+    print(f'Property verified: {model.verify(args.prop)}')
+    print(f'Elapsed time     : {time.perf_counter() - start:.4f}s')
