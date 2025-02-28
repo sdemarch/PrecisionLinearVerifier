@@ -29,7 +29,7 @@ def get_seed(model: LinearModel, idx: int) -> tuple[int, torch.Tensor, bool]:
 
 def get_xt(index: int) -> mp.matrix:
     """Get column vector for input idx"""
-    with open('linearverifier/attack/binary/XT.csv', 'r') as xt_f:
+    with open('jiarinard/binary/XT.csv', 'r') as xt_f:
         line = xt_f.readlines()[index]
 
         return mp.matrix(line.strip('\n').split(','))
@@ -37,14 +37,14 @@ def get_xt(index: int) -> mp.matrix:
 
 def get_yt(index: int) -> int:
     """Get true prediction for input idx"""
-    with open('linearverifier/attack/binary/YT.csv', 'r') as yt_f:
+    with open('jiarinard/binary/YT.csv', 'r') as yt_f:
         line = yt_f.readlines()[index]
         return int(line)
 
 
 def get_yp(index: int) -> mp.mpf:
     """Get prediction for input idx"""
-    with open('linearverifier/attack/binary/YP.csv', 'r') as yp_f:
+    with open('jiarinard/binary/YP.csv', 'r') as yp_f:
         line = yp_f.readlines()[index]
         return mp.mpf(line)
 
@@ -115,13 +115,13 @@ def round_vec(x: mp.matrix, digits: int) -> np.ndarray:
 def display(x: mp.matrix) -> None:
     pixels = round_vec(x, 16).reshape((28, 28))
     plt.imshow(pixels, cmap='gray')
-    plt.show()
+    plt.show(block=False)
+    plt.pause(0.001)
 
 
-def jia_binary():
+def jia_binary(idx: int):
     digits = 3
-    idx = 2
-    PATH = 'linearverifier/attack/binary'
+    PATH = 'jiarinard/binary'
 
     # Load binary classifier
     mnist = LinearModel(f'{PATH}/w_mnist.csv', f'{PATH}/b_mnist.csv')
@@ -195,13 +195,15 @@ def jia_binary():
 
         if yqq_np * yoo < 0:
             print(f'Alpha         = {alpha}')
+            print(f'Alpha safe    = {alpha_safe}')
             print(f'Y_oo          = {yoo}')
             with mp.workdps(digits - 1):
-                print(f'Y_qq (mpmath) = {(x_a.T * w)[0]}')
+                print(f'Y_qq (mpmath) = {(w * x_a)[0]}')
             print(f'Y_qq (numpy)  = {yqq_np}')
+            break
 
 
-def jia_new():
+def jia_new(idx: int):
     digits = 3  # MNIST is rounded to the third digit
 
     # Loads MNIST weights and bias from file
@@ -211,12 +213,14 @@ def jia_new():
 
     # 8576 -> cambia p_oo e rimane p_qq
     # 10   -> rimane p_oo e cambia p_qq
-    label, x_o, robust = get_seed(mnist, 8576)
+    label, x_o, robust = get_seed(mnist, idx)
     alpha_safe = 0
     display(x_o)
 
     # TODO: find good values for lb, ub alpha (using binary search?)
 
+    # step = int((ub-lb) * 10**digits)
+    # for a in np.linspace(lb, ub, step):
     for a in np.linspace(1, 2, 1000):
         alpha = mp.mpf(a)
 

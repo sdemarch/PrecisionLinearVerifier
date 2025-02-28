@@ -31,11 +31,16 @@ def create_disjunction_matrix(n_outs: int, label: int) -> list[mp.matrix]:
     """Procedure to create the matrix of the output property"""
     matrix = []
     c = 0
+
+    if n_outs == 1:
+        result = [mp.matrix(1, 1)]
+        result[0][0] = 1 if label == 1 else -1
+        return result
+
     for i in range(n_outs):
         if i != label:
             matrix.append(mp.matrix(1, n_outs))
-            if n_outs > 1:
-                matrix[c][label] = 1
+            matrix[c][label] = 1
             matrix[c][i] = -1
             c += 1
 
