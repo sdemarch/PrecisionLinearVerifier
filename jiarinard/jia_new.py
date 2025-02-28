@@ -127,9 +127,9 @@ def jia_binary(idx: int):
     mnist = LinearModel(f'{PATH}/w_mnist.csv', f'{PATH}/b_mnist.csv')
     w = mnist.layer.weight
 
-    ########################################
-    ### PARTE 1 - STABILIRE LIMITI ALPHA ###
-    ########################################
+    #######################################
+    #       PARTE 1 - TROVARE ALPHA       #
+    #######################################
     print('******* PARTE 1 *******')
 
     x_o = get_xt(idx)
@@ -137,70 +137,55 @@ def jia_binary(idx: int):
     yp = get_yp(idx)
 
     lb = 0
-    ub = 1
+    ub = 5
+    x_a = None
 
-    # Get large upper bound
-    while True:
+    # Get robust alpha
+    while ub - lb > 1 / 10**digits:
+        mid = (lb + ub) / 2
+
         if yt > 0:
-            x_a = x_o - ub * w.T / norm(w)
+            candidate_x_a = x_o - mid * w.T / norm(w)
         else:
-            x_a = x_o + ub * w.T / norm(w)
+            candidate_x_a = x_o + mid * w.T / norm(w)
 
-        yoo = (w * x_a)[0]
-        if yoo * yp > 0:
-            lb += 1
-            ub += 1
+        candidate_x_a = limiter(candidate_x_a, 0, 1)
+        robust = check_robust(mnist, candidate_x_a, yt)
+        if robust:
+            lb = mid
+            x_a = candidate_x_a
         else:
-            break
+            ub = mid
+
+    # Alpha is the greatest lb such that x_a is robust
+    alpha = lb
+    y_xa = w * x_a
 
     # Get alpha limits
-    print(f'Y vera      = {yt}')
-    print(f'Y predetta  = {yp}')
-    print(f'Alpha (lb)  = {lb}')
-    print(f'Alpha (ub)  = {ub}')
-
-    # if yt > 0:
-    #     x_a = x_o - alpha * w / wn
-    # else:
-    #     x_a = x_o + alpha * w / wn
-    #
-    # print(f'Y_oo    = {x_a.T * w}')
-    # with mp.workdps(digits - 1):
-    #     print(f'Y_qq    = {x_a.T * w}')
-    #
-    # input()
+    print(f'Y vera       = {yt}')
+    print(f'Y predetta   = {yp}')
+    print(f'Alpha        = {alpha}')
+    print(f'Y_a predetta = {y_xa}')
 
     ##############################
-    ### PARTE 2 - TROVARE BUCO ###
+    #   PARTE 2 - TROVARE BUCO   #
     ##############################
     print('******* PARTE 2 *******')
 
-    alpha_safe = 0
-    for alpha in np.linspace(lb, ub, 1000):
-        a = mp.mpf(alpha)
-
-        if yt > 0:
-            x_a = x_o - a * w.T / norm(w)
+    for i in range(w.cols):
+        if w[i] > 0:
+            x_a[i] -= 0.01
+            if x_a[i] < 0:
+                x_a[i] = 0.0
         else:
-            x_a = x_o + a * w.T / norm(w)
+            x_a[i] += 0.01
+            if x_a[i] > 1:
+                x_a[i] = 1.0
 
-        # Compress x_a
-        x_a = limiter(x_a, 0, 1)
-
-        if check_robust(mnist, x_a, yt):
-            alpha_safe = a
-
-        yoo = (w * x_a)[0]
-        yqq_np = np.matmul(round_vec(w, digits), round_vec(x_a, digits))
-
-        if yqq_np * yoo < 0:
-            print(f'Alpha         = {alpha}')
-            print(f'Alpha safe    = {alpha_safe}')
-            print(f'Y_oo          = {yoo}')
-            with mp.workdps(digits - 1):
-                print(f'Y_qq (mpmath) = {(w * x_a)[0]}')
-            print(f'Y_qq (numpy)  = {yqq_np}')
-            break
+    y_adv = w * x_a
+    y_adv_np = np.matmul(round_vec(w, digits), round_vec(x_a, digits))
+    print(f'Y_adv predetta   = {y_adv}')
+    print(f'Y_adv (troncata) = {y_adv_np}')
 
 
 def jia_new(idx: int):
