@@ -84,7 +84,7 @@ def check_robust(model: LinearModel, x: mp.matrix, label: int, eps: float = 0.01
     return model.verify(generate_vnnlib(x, label, name=f'jia_prop_label_{label}.vnnlib', eps=eps))
 
 
-def limiter(x: mp.matrix, low: float, high: float) -> mp.matrix:
+def limiter(x: mp.matrix, low: float = 0, high: float = 1) -> mp.matrix:
     """Limiter for compressing the values of a vector"""
     for i in range(x.rows):
         for j in range(x.cols):
@@ -127,9 +127,9 @@ def jia_binary(idx: int):
     mnist = LinearModel(f'{PATH}/w_mnist.csv', f'{PATH}/b_mnist.csv')
     w = mnist.layer.weight
 
-    #######################################
-    #       PARTE 1 - TROVARE ALPHA       #
-    #######################################
+    ###################################
+    #       PART 1 - FIND ALPHA       #
+    ###################################
     print('******* PARTE 1 *******')
 
     x_o = get_xt(idx)
@@ -141,19 +141,16 @@ def jia_binary(idx: int):
     x_a = None
 
     # Get robust alpha
-    while ub - lb > 1 / 10**digits:
+    while ub - lb > 1 / 10 ** digits:
         mid = (lb + ub) / 2
+        scale = mid * w.T / norm(w)
+        candidate_xa = limiter(x_o - scale) if yt > 0 else limiter(x_o + scale)
 
-        if yt > 0:
-            candidate_x_a = x_o - mid * w.T / norm(w)
-        else:
-            candidate_x_a = x_o + mid * w.T / norm(w)
+        robust = check_robust(mnist, candidate_xa, yt)
 
-        candidate_x_a = limiter(candidate_x_a, 0, 1)
-        robust = check_robust(mnist, candidate_x_a, yt)
         if robust:
             lb = mid
-            x_a = candidate_x_a
+            x_a = candidate_xa
         else:
             ub = mid
 
@@ -167,13 +164,14 @@ def jia_binary(idx: int):
     print(f'Alpha        = {alpha}')
     print(f'Y_a predetta = {y_xa}')
 
-    ##############################
-    #   PARTE 2 - TROVARE BUCO   #
-    ##############################
+    ###############################
+    #   PART 2 - FIND ADVERSARY   #
+    ###############################
     print('******* PARTE 2 *******')
 
     for i in range(w.cols):
-        if w[i] > 0:
+        # Depending on the direction I look at the weights differently
+        if w[i] > 0 if yt > 0 else w[i] < 0:
             x_a[i] -= 0.01
             if x_a[i] < 0:
                 x_a[i] = 0.0
@@ -183,9 +181,10 @@ def jia_binary(idx: int):
                 x_a[i] = 1.0
 
     y_adv = w * x_a
-    y_adv_np = np.matmul(round_vec(w, digits), round_vec(x_a, digits))
-    print(f'Y_adv predetta   = {y_adv}')
+    y_adv_np = np.matmul(round_vec(w, digits), round_vec(x_a, digits))[0]
+    print(f'Y_adv (normale)  = {y_adv}')
     print(f'Y_adv (troncata) = {y_adv_np}')
+    print(f'Y_adv > Y_adv_np? {y_adv > y_adv_np}')
 
 
 def jia_new(idx: int):
