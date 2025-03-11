@@ -21,10 +21,7 @@ args = parser.parse_args()
 
 if __name__ == '__main__':
     with mp.workdps(args.precision):
-        if args.net == 'test':
-            model = LinearModel('Data/Test/test_weights.txt', 'Data/Test/test_bias.txt')
-        elif args.net == 'mnist':
-            model = LinearModel('Data/MNIST/mnist_weights.txt', 'Data/MNIST/mnist_bias.txt')
+        model = LinearModel(args.net)
 
     start = time.perf_counter()
     print(f'Property verified: {model.verify(args.prop)}')
