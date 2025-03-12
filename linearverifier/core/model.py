@@ -47,7 +47,7 @@ class LinearModel:
         return True
 
     @staticmethod
-    def check_sym_robust(in_lbs: mp.matrix, in_ubs: mp.matrix, sym_bounds: dict, label: int) -> bool:
+    def check_sym_robust(in_lbs: mp.matrix, in_ubs: mp.matrix, sym_bounds: dict, label: int) -> tuple[bool, int | None]:
         """Procedure to check whether the robustness specification holds using symbolic bounds"""
 
         # Propagate property as a layer
@@ -60,9 +60,9 @@ class LinearModel:
             result = ops.check_unsafe_sym(sym_bounds, out_props[i], in_lbs, in_ubs)
 
             if result:
-                return False
+                return False, list(out_props[i]).index(-1)
 
-        return True
+        return True, None
 
     def parse_layer(self) -> LinearLayer:
         """Procedure to read the first layer of a ONNX network"""
@@ -79,7 +79,7 @@ class LinearModel:
 
         return low, upp
 
-    def verify(self, vnnlib_path: str) -> bool:
+    def verify(self, vnnlib_path: str) -> tuple[bool, int | None]:
         # 1: Read VNNLIB bounds
         in_lbs, in_ubs, label = vnnlib.read_vnnlib(vnnlib_path)
 
@@ -89,7 +89,7 @@ class LinearModel:
         # 3: Check intersection
         numeric_check = LinearModel.check_robust(out_lbs, out_ubs, label)
         if numeric_check:
-            return True
+            return True, None
         else:
             bounds = {
                 'matrix': self.layer.weight,
