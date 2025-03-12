@@ -3,12 +3,11 @@ This module defines the behavior of a neural network model
 
 """
 
-from mpmath import mp
-
 from linearverifier.core import ops
 from linearverifier.core.layer import LinearLayer
 from linearverifier.parser import onnx
 from linearverifier.parser import vnnlib
+from mpmath import mp
 
 MNIST_PATH = 'Data/MNIST'
 
@@ -60,7 +59,10 @@ class LinearModel:
             result = ops.check_unsafe_sym(sym_bounds, out_props[i], in_lbs, in_ubs)
 
             if result:
-                return False, list(out_props[i]).index(-1)
+                if len(out_props[i]) == 1:
+                    return False, None
+                else:
+                    return False, list(out_props[i]).index(-1)
 
         return True, None
 
